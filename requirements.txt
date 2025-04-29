@@ -1,0 +1,5 @@
+Flask==2.3.3
+Flask-SocketIO==5.3.6
+flasgger==0.9.7
+PyJWT==2.8.0
+jsonschema==4.19.0
