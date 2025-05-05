@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Application</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        #chatArea { height: 70vh; overflow-y: auto; }
+        .message { margin: 10px; padding: 10px; border-radius: 10px; }
+        .message.self { background-color: #DCF8C6; align-self: flex-end; }
+        .message.other { background-color: #ECECEC; }
+        .notification { animation: fadeOut 5s forwards; }
+        @keyframes fadeOut { 0% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; display: none; } }
+    </style>
+</head>
+<body class="bg-gray-100 flex h-screen">
+    <!-- Sidebar -->
+    <div class="w-1/4 bg-white shadow-md p-4">
+        <h2 class="text-xl font-bold mb-4">Chat Rooms</h2>
+        <ul id="roomList" class="mb-4"></ul>
+        <input id="newRoom" type="text" placeholder="New room name" class="w-full p-2 mb-2 border rounded">
+        <button onclick="joinRoom()" class="w-full bg-blue-500 text-white p-2 rounded">Join Room</button>
+
+        <h2 class="text-xl font-bold mt-6 mb-4">Contacts</h2>
+        <ul id="contactList" class="mb-4"></ul>
+        <input id="newContact" type="text" placeholder="Add contact username" class="w-full p-2 mb-2 border rounded">
+        <button onclick="addContact()" class="w-full bg-green-500 text-white p-2 rounded">Add Contact</button>
+    </div>
+
+    <!-- Main Chat Area -->
+    <div class="w-3/4 flex flex-col">
+        <!-- Notifications -->
+        <div id="notificationArea" class="p-4"></div>
+
+        <!-- Chat Header -->
+        <div class="bg-white p-4 shadow-md flex justify-between items-center">
+            <h2 id="currentRoom" class="text-xl font-bold">Select a room</h2>
+            <button onclick="showSettings()" class="bg-gray-200 p-2 rounded">Room Settings</button>
+        </div>
+
+        <!-- Messages -->
+        <div id="chatArea" class="flex-1 p-4 bg-white m-4 rounded shadow-md flex flex-col"></div>
+
+        <!-- Message Input -->
+        <div class="bg-white p-4 shadow-md">
+            <div class="flex">
+                <input id="messageInput" type="text" placeholder="Type a message..." class="flex-1 p-2 border rounded-l">
+                <input id="fileInput" type="file" class="hidden">
+                <button onclick="sendMessage()" class="bg-blue-500 text-white p-2 rounded-r">Send</button>
+                <button onclick="document.getElementById('fileInput').click()" class="bg-gray-500 text-white p-2 ml-2 rounded">Attach</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+        <div class="bg-white p-6 rounded shadow-lg w-1/3">
+            <h2 class="text-xl font-bold mb-4">Room Settings</h2>
+            <input id="roomName" type="text" placeholder="Room Name" class="w-full p-2 mb-2 border rounded">
+            <input id="roomDescription" type="text" placeholder="Description" class="w-full p-2 mb-2 border rounded">
+            <select id="roomPrivacy" class="w-full p-2 mb-2 border rounded">
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+            </select>
+            <button onclick="updateSettings()" class="w-full bg-blue-500 text-white p-2 rounded">Save</button>
+            <button onclick="closeSettings()" class="w-full bg-red-500 text-white p-2 mt-2 rounded">Close</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io('http://localhost:5000');
+        let currentRoom = '';
+        let username = prompt('Enter your username') || 'Anonymous';
+
+        // SocketIO Events
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+
+        socket.on('update_chat', (messages) => {
+            displayMessages(messages);
+        });
+
+        socket.on('new_notification', (notification) => {
+            showNotification(notification);
+        });
+
+        socket.on('update_participants', (participants) => {
+            updateParticipants(participants);
+        });
+
+        socket.on('update_settings', (settings) => {
+            document.getElementById('currentRoom').textContent = settings.name || currentRoom;
+        });
+
+        socket.on('update_contacts', (contacts) => {
+            displayContacts(contacts);
+        });
+
+        socket.on('update_status', (data) => {
+            updateMessageStatus(data.message_id, data.status);
+        });
+
+        // Join Room
+        function joinRoom() {
+            const room = document.getElementById('newRoom').value;
+            if (room) {
+                currentRoom = room;
+                socket.emit('join', { username, room });
+                document.getElementById('currentRoom').textContent = room;
+                fetchMessages();
+                fetchParticipants();
+                document.getElementById('newRoom').value = '';
+            }
+        }
+
+        // Fetch Messages
+        function fetchMessages() {
+            if (currentRoom) {
+                $.get(`/messages/${currentRoom}`, (data) => {
+                    displayMessages(data.messages);
+                });
+            }
+        }
+
+        // Display Messages
+        function displayMessages(messages) {
+            const chatArea = document.getElementById('chatArea');
+            chatArea.innerHTML = '';
+            messages.forEach(msg => {
+                const div = document.createElement('div');
+                div.className = `message ${msg.username === username ? 'self' : 'other'}`;
+                if (msg.attachment) {
+                    div.innerHTML = `<strong>${msg.username}</strong>: <a href="${msg.attachment}" target="_blank">Attachment</a>`;
+                } else {
+                    div.innerHTML = `<strong>${msg.username}</strong>: ${msg.message}`;
+                }
+                chatArea.appendChild(div);
+            });
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        // Send Message
+        function sendMessage() {
+            const message = document.getElementById('messageInput').value;
+            const fileInput = document.getElementById('fileInput');
+            if (message && currentRoom) {
+                $.post('/messages', { room: currentRoom, username, message }, () => {
+                    document.getElementById('messageInput').value = '';
+                });
+            }
+            if (fileInput.files.length > 0) {
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                formData.append('username', username);
+                $.ajax({
+                    url: `/messages/${currentRoom}/attachment`,
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: () => {
+                        fileInput.value = '';
+                    }
+                });
+            }
+        }
+
+        // Show Notification
+        function showNotification(notification) {
+            const notificationArea = document.getElementById('notificationArea');
+            const div = document.createElement('div');
+            div.className = `notification p-2 mb-2 rounded text-white ${notification.type === 'info' ? 'bg-blue-500' : 'bg-red-500'}`;
+            div.textContent = notification.message;
+            notificationArea.appendChild(div);
+            setTimeout(() => div.remove(), 5000);
+        }
+
+        // Fetch Notifications
+        function fetchNotifications() {
+            $.get(`/notifications/${username}`, (data) => {
+                data.notifications.forEach(showNotification);
+            });
+        }
+
+        // Fetch Participants
+        function fetchParticipants() {
+            if (currentRoom) {
+                $.get(`/rooms/${currentRoom}/participants`, (data) => {
+                    updateParticipants(data.participants);
+                });
+            }
+        }
+
+        // Update Participants
+        function updateParticipants(participants) {
+            const roomList = document.getElementById('roomList');
+            if (currentRoom) {
+                const roomItem = Array.from(roomList.children).find(item => item.dataset.room === currentRoom);
+                if (roomItem) {
+                    roomItem.textContent = `${currentRoom} (${participants.length} participants)`;
+                }
+            }
+        }
+
+        // Add Contact
+        function addContact() {
+            const contactUsername = document.getElementById('newContact').value;
+            if (contactUsername) {
+                $.post('/contacts', { username, contact_username: contactUsername }, () => {
+                    fetchContacts();
+                    document.getElementById('newContact').value = '';
+                });
+            }
+        }
+
+        // Fetch Contacts
+        function fetchContacts() {
+            $.get(`/contacts/${username}`, (data) => {
+                displayContacts(data.contacts);
+            });
+        }
+
+        // Display Contacts
+        function displayContacts(contacts) {
+            const contactList = document.getElementById('contactList');
+            contactList.innerHTML = '';
+            contacts.forEach(contact => {
+                const li = document.createElement('li');
+                li.className = 'p-2 hover:bg-gray-100 cursor-pointer';
+                li.textContent = contact.nickname || contact.contact_username;
+                li.onclick = () => startPrivateChat(contact.contact_username);
+                contactList.appendChild(li);
+            });
+        }
+
+        // Start Private Chat
+        function startPrivateChat(contactUsername) {
+            const room = [username, contactUsername].sort().join('_');
+            currentRoom = room;
+            socket.emit('join', { username, room });
+            document.getElementById('currentRoom').textContent = contactUsername;
+            fetchMessages();
+            fetchParticipants();
+        }
+
+        // Show Settings Modal
+        function showSettings() {
+            document.getElementById('settingsModal').classList.remove('hidden');
+            $.get(`/rooms/${currentRoom}/settings`, (data) => {
+                document.getElementById('roomName').value = data.name || '';
+                document.getElementById('roomDescription').value = data.description || '';
+                document.getElementById('roomPrivacy').value = data.privacy || 'public';
+            });
+        }
+
+        // Close Settings Modal
+        function closeSettings() {
+            document.getElementById('settingsModal').classList.add('hidden');
+        }
+
+        // Update Settings
+        function updateSettings() {
+            const settings = {
+                name: document.getElementById('roomName').value,
+                description: document.getElementById('roomDescription').value,
+                privacy: document.getElementById('roomPrivacy').value
+            };
+            $.ajax({
+                url: `/rooms/${currentRoom}/settings`,
+                type: 'PUT',
+                contentType: 'application/json',
+                data: JSON.stringify(settings),
+                success: () => closeSettings()
+            });
+        }
+
+        // Update Message Status
+        function updateMessageStatus(messageId, status) {
+            // Can be extended to show delivered/read status
+            console.log(`Message ${messageId} status updated:`, status);
+        }
+
+        // Initial Load
+        fetchNotifications();
+        fetchContacts();
+    </script>
+</body>
+</html>
