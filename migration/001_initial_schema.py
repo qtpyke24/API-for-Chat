@@ -1,36 +1,51 @@
-import json
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 import os
 from datetime import datetime
 
-CHAT_FILE = 'data/chat_messages.json'
-CONTACT_FILE = 'data/contacts.json'
-USER_FILE = 'data/users.json'
-NOTIFICATION_FILE = 'data/notifications.json'
+# Định nghĩa cơ sở dữ liệu
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, '../data/chat.db')}"
+engine = create_engine(DATABASE_URL, echo=True)
+Base = declarative_base()
+
+# Định nghĩa các bảng
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True)
+    username = Column(String(50), unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Message(Base):
+    __tablename__ = 'messages'
+    id = Column(Integer, primary_key=True)
+    room = Column(String(50), nullable=False)
+    username = Column(String(50), ForeignKey('users.username'), nullable=False)
+    message = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    status = Column(Text, default='{"sent": true, "delivered": {}, "read": {}}')
+
+class Contact(Base):
+    __tablename__ = 'contacts'
+    id = Column(Integer, primary_key=True)
+    username = Column(String(50), ForeignKey('users.username'), nullable=False)
+    contact_username = Column(String(50), ForeignKey('users.username'), nullable=False)
+    nickname = Column(String(100))
+    added_at = Column(DateTime, default=datetime.utcnow)
+
+class Notification(Base):
+    __tablename__ = 'notifications'
+    id = Column(Integer, primary_key=True)
+    username = Column(String(50), ForeignKey('users.username'), nullable=False)
+    message = Column(Text, nullable=False)
+    type = Column(String(20), default='info')
+    timestamp = Column(DateTime, default=datetime.utcnow)
 
 def init_schema():
-    """Khởi tạo schema ban đầu cho các file JSON"""
-    # Đảm bảo thư mục data tồn tại
-    os.makedirs('data', exist_ok=True)
-
-    # Schema cho chat_messages.json
-    if not os.path.exists(CHAT_FILE):
-        with open(CHAT_FILE, 'w') as f:
-            json.dump({}, f)
-
-    # Schema cho contacts.json
-    if not os.path.exists(CONTACT_FILE):
-        with open(CONTACT_FILE, 'w') as f:
-            json.dump({}, f)
-
-    # Schema cho users.json
-    if not os.path.exists(USER_FILE):
-        with open(USER_FILE, 'w') as f:
-            json.dump({}, f)
-
-    # Schema cho notifications.json
-    if not os.path.exists(NOTIFICATION_FILE):
-        with open(NOTIFICATION_FILE, 'w') as f:
-            json.dump({}, f)
+    """Tạo các bảng trong cơ sở dữ liệu"""
+    os.makedirs(os.path.join(BASE_DIR, '../data'), exist_ok=True)
+    Base.metadata.create_all(engine)
 
 def run_migration():
     print("Chạy migration 001_initial_schema...")
