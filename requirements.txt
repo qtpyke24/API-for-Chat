@@ -3,3 +3,4 @@ Flask-SocketIO==5.3.6
 flasgger==0.9.7
 PyJWT==2.8.0
 jsonschema==4.19.0
+SQLAlchemy==2.0.23
